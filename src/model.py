@@ -7,9 +7,10 @@ from torch import nn
 
 
 class MGGAT(nn.Module):
-    def __init__(self, num_users: int, num_businesses: int, user_feat_dim: int, business_feat_dim: int, hidden_dim: int = 64, latent_dim: int = 64, num_business_graphs: int = 3, interpretable: bool = True) -> None:
+    def __init__(self, num_users: int, num_businesses: int, user_feat_dim: int, business_feat_dim: int, hidden_dim: int = 64, latent_dim: int = 64, num_business_graphs: int = 3, interpretable: bool = True, dropout: float = 0.1) -> None:
         super().__init__()
         self.interpretable = interpretable
+        self.dropout = nn.Dropout(dropout)
         if interpretable:
             self.user_linear = nn.Linear(user_feat_dim, hidden_dim, bias=False)
             self.business_linear = nn.Linear(business_feat_dim, hidden_dim, bias=False)
@@ -24,6 +25,8 @@ class MGGAT(nn.Module):
         self.user_dense_skip = nn.Linear(user_feat_dim, hidden_dim)
         self.business_dense_graph = nn.Linear(hidden_dim, hidden_dim)
         self.business_dense_skip = nn.Linear(business_feat_dim, hidden_dim)
+        self.user_norm = nn.LayerNorm(hidden_dim)
+        self.business_norm = nn.LayerNorm(hidden_dim)
         self.user_out = nn.Linear(hidden_dim, latent_dim)
         self.business_out = nn.Linear(hidden_dim, latent_dim)
         self.user_base = nn.Embedding(num_users, latent_dim)
@@ -32,6 +35,16 @@ class MGGAT(nn.Module):
         self.business_bias = nn.Embedding(num_businesses, 1)
         self.global_bias = nn.Parameter(torch.zeros(1))
         self.leaky_relu = nn.LeakyReLU(0.2)
+        self.elu = nn.ELU()
+
+        for module in [self.user_dense_graph, self.user_dense_skip, self.business_dense_graph, self.business_dense_skip, self.user_out, self.business_out]:
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        nn.init.xavier_uniform_(self.user_base.weight)
+        nn.init.xavier_uniform_(self.business_base.weight)
+        nn.init.zeros_(self.user_bias.weight)
+        nn.init.zeros_(self.business_bias.weight)
 
     def forward(self, user_features: torch.Tensor, business_features: torch.Tensor, user_edges: torch.Tensor, business_edges: torch.Tensor, business_edge_type: torch.Tensor, user_idx: torch.Tensor, business_idx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         user_emb, business_emb = self.compute_embeddings(user_features, business_features, user_edges, business_edges, business_edge_type)
@@ -45,10 +58,12 @@ class MGGAT(nn.Module):
         b1 = self.business_linear(business_features)
         u2 = self._aggregate(u1, user_edges, self.user_attention, None)
         b2 = self._aggregate(b1, business_edges, self.business_attention, business_edge_type)
-        u3 = torch.relu(self.user_dense_graph(u2) + self.user_dense_skip(user_features))
-        b3 = torch.relu(self.business_dense_graph(b2) + self.business_dense_skip(business_features))
-        user_emb = torch.relu(self.user_out(u3)) + self.user_base.weight
-        business_emb = torch.relu(self.business_out(b3)) + self.business_base.weight
+        u3 = self.user_norm(self.elu(self.user_dense_graph(u2) + self.user_dense_skip(user_features)))
+        b3 = self.business_norm(self.elu(self.business_dense_graph(b2) + self.business_dense_skip(business_features)))
+        u3 = self.dropout(u3)
+        b3 = self.dropout(b3)
+        user_emb = self.user_out(u3) + self.user_base.weight
+        business_emb = self.business_out(b3) + self.business_base.weight
         return user_emb, business_emb
 
     def _aggregate(self, features, edges, attention_vector, edge_type: Optional[torch.Tensor]):
@@ -60,10 +75,12 @@ class MGGAT(nn.Module):
         scores = self.leaky_relu((concat * attention_vector.unsqueeze(0)).sum(dim=1))
         if edge_type is not None and edge_type.numel() > 0:
             scores = scores + self.graph_weight[edge_type]
-        weights = torch.sigmoid(scores)
+        max_per_src = torch.full((features.size(0),), -1e9, device=features.device, dtype=features.dtype)
+        max_per_src.scatter_reduce_(0, src, scores, reduce='amax', include_self=True)
+        exp_scores = torch.exp(scores - max_per_src[src])
         denom = torch.zeros(features.size(0), device=features.device, dtype=features.dtype)
-        denom.index_add_(0, src, weights)
-        weights = weights / denom[src].clamp_min(1e-8)
+        denom.index_add_(0, src, exp_scores)
+        weights = exp_scores / denom[src].clamp_min(1e-8)
         out = torch.zeros_like(features)
         out.index_add_(0, src, weights.unsqueeze(1) * features[dst])
         return out

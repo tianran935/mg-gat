@@ -1,0 +1,29 @@
+[
+  {
+    "name": "uninterp_64x64_drop01",
+    "best_val_rmse": 1.1763945817947388,
+    "best_epoch": 79,
+    "test_rmse": 1.199029564857483,
+    "test_spearman": 0.3819368395406841,
+    "test_fcp": 0.6148896989313993,
+    "test_bpr": 0.6138677000213507
+  },
+  {
+    "name": "uninterp_64x128_drop01",
+    "best_val_rmse": 1.232828974723816,
+    "best_epoch": 79,
+    "test_rmse": 1.2649102210998535,
+    "test_spearman": 0.3772602188748806,
+    "test_fcp": 0.6080549652496805,
+    "test_bpr": 0.6131000248816508
+  },
+  {
+    "name": "uninterp_128x64_drop01",
+    "best_val_rmse": 1.5482237339019775,
+    "best_epoch": 74,
+    "test_rmse": 1.5325963497161865,
+    "test_spearman": 0.4127641015014713,
+    "test_fcp": 0.5481891264397372,
+    "test_bpr": 0.5542783844464565
+  }
+]

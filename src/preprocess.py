@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import ast
 import json
-from collections import Counter, defaultdict
-from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from datetime import datetime
+from collections import Counter, defaultdict, deque
+from typing import Dict, List, Set
 
 import numpy as np
 import pandas as pd
+from scipy import sparse
 from sklearn.decomposition import TruncatedSVD
 
 from src.config import DEFAULT_CONFIG, ReproductionConfig
@@ -89,8 +90,32 @@ def _standardize(arr: np.ndarray) -> np.ndarray:
     return (arr - mean) / std
 
 
-def build_default_business_subset(config: ReproductionConfig) -> Dict[str, dict]:
-    selected: Dict[str, dict] = {}
+def _load_checkin_vectors(config: ReproductionConfig, business_ids: Set[str]) -> Dict[str, np.ndarray]:
+    vectors: Dict[str, np.ndarray] = {}
+    slot_cache: Dict[str, int] = {}
+    for row in json_lines(config.data.checkin_json):
+        bid = row['business_id']
+        if bid not in business_ids:
+            continue
+        vec = np.zeros(168, dtype=np.float32)
+        raw = row.get('date')
+        if isinstance(raw, str) and raw:
+            for stamp in [x.strip() for x in raw.split(',') if x.strip()]:
+                slot = slot_cache.get(stamp)
+                if slot is None:
+                    dt = datetime.fromisoformat(stamp)
+                    slot = dt.weekday() * 24 + dt.hour
+                    slot_cache[stamp] = slot
+                vec[slot] += 1.0
+        vectors[bid] = vec
+    return vectors
+
+
+def build_preprocessed_dataset(config: ReproductionConfig = DEFAULT_CONFIG) -> Dict[str, int]:
+    out_dir = config.data.processed_dir / 'default_pa'
+    ensure_dir(out_dir)
+
+    businesses: Dict[str, dict] = {}
     for row in json_lines(config.data.business_json):
         categories = row.get('categories') or ''
         if row.get('state') != config.region:
@@ -101,23 +126,20 @@ def build_default_business_subset(config: ReproductionConfig) -> Dict[str, dict]
             continue
         if config.require_attributes and not row.get('attributes'):
             continue
-        selected[row['business_id']] = row
-    return selected
+        businesses[row['business_id']] = row
 
+    checkin_vectors = _load_checkin_vectors(config, set(businesses))
+    if config.require_checkins:
+        businesses = {bid: row for bid, row in businesses.items() if bid in checkin_vectors}
 
-def build_preprocessed_dataset(config: ReproductionConfig = DEFAULT_CONFIG) -> Dict[str, int]:
-    out_dir = config.data.processed_dir / 'default_pa'
-    ensure_dir(out_dir)
-
-    businesses = build_default_business_subset(config)
     review_rows = []
-    active_users: Set[str] = set()
+    candidate_users: Set[str] = set()
     for row in json_lines(config.data.review_json):
         bid = row['business_id']
         if bid not in businesses:
             continue
         year = int(row['date'][:4])
-        if not (2009 <= year <= config.split.test_year):
+        if config.use_year_window_only and not (2009 <= year <= config.split.test_year):
             continue
         review_rows.append({
             'user_id': row['user_id'],
@@ -126,42 +148,81 @@ def build_preprocessed_dataset(config: ReproductionConfig = DEFAULT_CONFIG) -> D
             'date': row['date'],
             'year': year,
         })
-        active_users.add(row['user_id'])
+        candidate_users.add(row['user_id'])
 
-    users = {}
+    user_records: Dict[str, dict] = {}
+    adjacency = defaultdict(set)
     for row in json_lines(config.data.user_json):
         uid = row['user_id']
-        if uid in active_users:
-            users[uid] = row
+        if uid not in candidate_users:
+            continue
+        user_records[uid] = row
+        friends = row.get('friends') or ''
+        if not friends or friends == 'None':
+            continue
+        for friend in [x.strip() for x in friends.split(',') if x.strip()]:
+            if friend in candidate_users and friend != uid:
+                adjacency[uid].add(friend)
 
-    business_df = pd.DataFrame(list(businesses.values())).reset_index(drop=True)
-    review_df = pd.DataFrame(review_rows).reset_index(drop=True)
-    user_df = pd.DataFrame(list(users.values())).reset_index(drop=True)
+    kept_users = set(candidate_users)
+    if config.require_friend_in_subset:
+        kept_users = {u for u in candidate_users if any(f in candidate_users for f in adjacency.get(u, set()))}
 
+    if config.use_largest_friend_component and kept_users:
+        undirected = defaultdict(set)
+        for u in kept_users:
+            for v in adjacency.get(u, set()):
+                if v in kept_users:
+                    undirected[u].add(v)
+                    undirected[v].add(u)
+        visited = set()
+        giant = set()
+        for u in undirected:
+            if u in visited:
+                continue
+            queue = deque([u])
+            visited.add(u)
+            comp = []
+            while queue:
+                cur = queue.popleft()
+                comp.append(cur)
+                for nb in undirected[cur]:
+                    if nb not in visited:
+                        visited.add(nb)
+                        queue.append(nb)
+            if len(comp) > len(giant):
+                giant = set(comp)
+        if giant:
+            kept_users = giant
+
+    review_df = pd.DataFrame([r for r in review_rows if r['user_id'] in kept_users]).reset_index(drop=True)
     user_ids = sorted(review_df['user_id'].unique().tolist())
     business_ids = sorted(review_df['business_id'].unique().tolist())
+
+    user_df = pd.DataFrame([user_records[uid] for uid in user_ids]).reset_index(drop=True)
+    business_df = pd.DataFrame([businesses[bid] for bid in business_ids]).reset_index(drop=True)
+
     user_to_idx = {uid: idx for idx, uid in enumerate(user_ids)}
     business_to_idx = {bid: idx for idx, bid in enumerate(business_ids)}
-
     review_df['user_idx'] = review_df['user_id'].map(user_to_idx)
     review_df['business_idx'] = review_df['business_id'].map(business_to_idx)
-    business_df = business_df[business_df['business_id'].isin(business_ids)].copy().reset_index(drop=True)
-    user_df = user_df[user_df['user_id'].isin(user_ids)].copy().reset_index(drop=True)
 
     category_counter = Counter()
     attr_counter = Counter()
     parsed_categories = []
     parsed_attrs = []
-    for _, row in business_df.iterrows():
+    checkin_matrix = np.zeros((len(business_df), 168), dtype=np.float32)
+    for idx, row in business_df.iterrows():
         cats = _parse_categories(row.get('categories'))
         attrs = _parse_attributes(row.get('attributes'))
         parsed_categories.append(cats)
         parsed_attrs.append(attrs)
         category_counter.update(cats)
         attr_counter.update(attrs.keys())
+        checkin_matrix[idx] = checkin_vectors.get(row['business_id'], np.zeros(168, dtype=np.float32))
 
-    kept_categories = sorted([k for k, v in category_counter.items() if v >= 20])
-    kept_attrs = sorted([k for k, v in attr_counter.items() if v >= 20])
+    kept_categories = sorted([k for k, v in category_counter.items() if v >= config.min_category_freq])
+    kept_attrs = sorted([k for k, v in attr_counter.items() if v >= config.min_attribute_freq])
     cat_index = {name: idx for idx, name in enumerate(kept_categories)}
     attr_index = {name: idx for idx, name in enumerate(kept_attrs)}
 
@@ -195,15 +256,14 @@ def build_preprocessed_dataset(config: ReproductionConfig = DEFAULT_CONFIG) -> D
         friend_count.to_numpy(dtype=np.float32).reshape(-1, 1),
     ], axis=1)
 
-    interaction = np.zeros((len(user_ids), len(business_ids)), dtype=np.float32)
-    interaction[review_df['user_idx'].to_numpy(), review_df['business_idx'].to_numpy()] = 1.0
-    n_components = min(32, min(interaction.shape) - 1)
-    svd = TruncatedSVD(n_components=n_components, random_state=42)
+    interaction = sparse.csr_matrix((np.ones(len(review_df), dtype=np.float32), (review_df['user_idx'].to_numpy(), review_df['business_idx'].to_numpy())), shape=(len(user_ids), len(business_ids)), dtype=np.float32)
+    n_components = min(config.implicit_dim, min(interaction.shape) - 1)
+    svd = TruncatedSVD(n_components=n_components, random_state=config.train.seed)
     user_implicit = svd.fit_transform(interaction).astype(np.float32)
     business_implicit = svd.components_.T.astype(np.float32)
 
     user_features = _standardize(np.concatenate([user_feature_matrix, user_implicit], axis=1)).astype(np.float32)
-    business_features = _standardize(np.concatenate([attr_matrix, category_matrix, hour_matrix, location_matrix, business_implicit], axis=1)).astype(np.float32)
+    business_features = _standardize(np.concatenate([attr_matrix, category_matrix, hour_matrix, location_matrix, checkin_matrix, business_implicit], axis=1)).astype(np.float32)
 
     split_map = {
         'train': review_df[review_df['year'] <= config.split.train_end_year],
@@ -215,8 +275,8 @@ def build_preprocessed_dataset(config: ReproductionConfig = DEFAULT_CONFIG) -> D
 
     np.save(out_dir / 'user_features.npy', user_features)
     np.save(out_dir / 'business_features.npy', business_features)
-    user_df[['user_id']].assign(user_idx=np.arange(len(user_df))).to_csv(out_dir / 'user_index.csv', index=False)
-    business_df[['business_id']].assign(business_idx=np.arange(len(business_df))).to_csv(out_dir / 'business_index.csv', index=False)
+    user_df[['user_id', 'friends']].assign(user_idx=np.arange(len(user_df))).to_csv(out_dir / 'user_index.csv', index=False)
+    business_df[['business_id', 'latitude', 'longitude', 'categories']].assign(business_idx=np.arange(len(business_df))).to_csv(out_dir / 'business_index.csv', index=False)
 
     return {
         'users': len(user_ids),

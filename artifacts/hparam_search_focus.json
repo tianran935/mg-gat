@@ -1,0 +1,16 @@
+[
+  {
+    "name": "interp_64x128_lr1e3_drop01",
+    "best_val_rmse": 1.2290183305740356,
+    "best_epoch": 80,
+    "test_rmse": 1.2514933347702026,
+    "test_spearman": 0.34743074629830306
+  },
+  {
+    "name": "interp_64x64_lr1e3_drop005_wd1e6_t5e5",
+    "best_val_rmse": 1.2185940742492676,
+    "best_epoch": 80,
+    "test_rmse": 1.2542169094085693,
+    "test_spearman": 0.34090862713724557
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "name": "interp_64_lr1e3_drop01",
+    "best_val_rmse": 1.2104201316833496,
+    "best_epoch": 69,
+    "test_rmse": 1.2463390827178955,
+    "test_spearman": 0.35131437869269044,
+    "hidden_dim": 64,
+    "latent_dim": 64,
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "theta1": 0.0001,
+    "theta2": 0.0001,
+    "interpretable": true
+  },
+  {
+    "name": "interp_128_lr1e3_drop01",
+    "best_val_rmse": 1.409216046333313,
+    "best_epoch": 65,
+    "test_rmse": 1.42472243309021,
+    "test_spearman": 0.3219388411682166,
+    "hidden_dim": 128,
+    "latent_dim": 64,
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "theta1": 0.0001,
+    "theta2": 0.0001,
+    "interpretable": true
+  },
+  {
+    "name": "interp_64_lr5e4_drop00",
+    "best_val_rmse": 1.2504878044128418,
+    "best_epoch": 89,
+    "test_rmse": 1.3017714023590088,
+    "test_spearman": 0.3094886240177324,
+    "hidden_dim": 64,
+    "latent_dim": 64,
+    "dropout": 0.0,
+    "lr": 0.0005,
+    "weight_decay": 1e-05,
+    "theta1": 0.0001,
+    "theta2": 0.0001,
+    "interpretable": true
+  },
+  {
+    "name": "uninterp_64_lr1e3_drop01",
+    "best_val_rmse": 1.2068899869918823,
+    "best_epoch": 64,
+    "test_rmse": 1.2353938817977905,
+    "test_spearman": 0.37455647167600076,
+    "hidden_dim": 64,
+    "latent_dim": 64,
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "theta1": 0.0001,
+    "theta2": 0.0001,
+    "interpretable": false
+  }
+]

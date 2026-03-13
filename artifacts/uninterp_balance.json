@@ -1,0 +1,20 @@
+[
+  {
+    "name": "uninterp_96x64",
+    "best_val_rmse": 1.567136526107788,
+    "best_epoch": 61,
+    "test_rmse": 1.5477796792984009,
+    "test_spearman": 0.39478336335343883,
+    "test_fcp": 0.5439237988640918,
+    "test_bpr": 0.5468310323450793
+  },
+  {
+    "name": "uninterp_80x64",
+    "best_val_rmse": 1.1852424144744873,
+    "best_epoch": 75,
+    "test_rmse": 1.2172267436981201,
+    "test_spearman": 0.38237912054809814,
+    "test_fcp": 0.6112274917000053,
+    "test_bpr": 0.6109767986247546
+  }
+]
