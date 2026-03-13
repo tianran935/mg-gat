@@ -1,0 +1,61 @@
+{
+  "config": {
+    "region": "PA",
+    "business_category_token": "Restaurants",
+    "require_hours": true,
+    "require_attributes": true,
+    "require_checkins": false,
+    "require_friend_in_subset": false,
+    "use_year_window_only": true,
+    "data": {
+      "raw_dir": "/root/autodl-tmp/mg-gat/data/raw/Yelp JSON",
+      "business_json": "/root/autodl-tmp/mg-gat/data/raw/Yelp JSON/yelp_academic_dataset_business.json",
+      "user_json": "/root/autodl-tmp/mg-gat/data/raw/Yelp JSON/yelp_academic_dataset_user.json",
+      "review_json": "/root/autodl-tmp/mg-gat/data/raw/Yelp JSON/yelp_academic_dataset_review.json",
+      "checkin_json": "/root/autodl-tmp/mg-gat/data/raw/Yelp JSON/yelp_academic_dataset_checkin.json",
+      "processed_dir": "/root/autodl-tmp/yelp/data/processed",
+      "artifacts_dir": "/root/autodl-tmp/yelp/artifacts"
+    },
+    "split": {
+      "train_end_year": 2016,
+      "valid_year": 2017,
+      "test_year": 2018
+    },
+    "assumptions": {
+      "paper_scope": "Only Stage 1 MG-GAT is implemented; all LLM-based explanation components are excluded.",
+      "dataset_warning": "The current Yelp snapshot appears materially larger than the paper's PA dataset, so exact paper subset construction is not directly observable.",
+      "default_subset": "The default conservative starting point is PA restaurants with hours and attributes present."
+    }
+  },
+  "business_count": 10621,
+  "user_count_before_friend_filter": 228679,
+  "review_count_before_friend_filter": 784856,
+  "user_count_after_friend_filter": 228679,
+  "review_count_after_friend_filter": 784856,
+  "largest_friend_component_size": 98831,
+  "yearly_review_counts": {
+    "2005": 104,
+    "2006": 768,
+    "2007": 4096,
+    "2008": 12105,
+    "2009": 21427,
+    "2010": 34471,
+    "2011": 49727,
+    "2012": 59847,
+    "2013": 73368,
+    "2014": 89010,
+    "2015": 107258,
+    "2016": 110116,
+    "2017": 118932,
+    "2018": 120700,
+    "2019": 118914,
+    "2020": 63241,
+    "2021": 66072,
+    "2022": 3299
+  },
+  "paper_target_table_d1": {
+    "business_count": 10966,
+    "user_count": 76865,
+    "rating_count": 260350
+  }
+}
