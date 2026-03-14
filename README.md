@@ -1,109 +1,133 @@
-# Yelp MG-GAT Reproduction
+# MG-GAT Yelp PA Reproduction
 
-This project is a careful reproduction attempt of the Stage 1 MG-GAT rating-prediction experiment from the paper:
+This project is a careful reproduction of the Stage 1 rating-prediction component from the paper:
 
-[Interpretable Recommendations and User-Centric Explanations with Geometric Deep Learning](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3696092)
+*Interpretable Recommendations and User-Centric Explanations with Geometric Deep Learning*
+
+The goal is to reproduce the Yelp Pennsylvania (PA) MG-GAT experiment in Table 1 as faithfully as possible while removing all LLM-related components and keeping only the deep learning recommendation structure.
 
 ## Scope
-- Reproduce the Yelp Pennsylvania rating-prediction setup as closely as possible.
-- Implement only Stage 1 MG-GAT.
-- Exclude all LLM-based explanation generation.
-- Record all paper ambiguities, assumptions, and dataset mismatches explicitly.
 
-## Important finding
-The paper's reported PA dataset is not equal to a naive `state == PA` slice of the currently available Yelp snapshot. To get closer to the paper, the current code uses a stricter subset:
-- Pennsylvania businesses
-- category contains `Restaurants`
+This reproduction only keeps the Stage 1 model.
+
+Included:
+- Yelp PA rating prediction
+- user auxiliary features and business auxiliary features
+- user friendship graph
+- multi-graph business structure
+- interpretable MG-GAT and less interpretable MG-GAT variants
+- RMSE, Spearman, FCP, and BPR evaluation
+
+Excluded:
+- any LLM-based perceptual graph construction
+- any LLM-based explanation generation
+- any OpenAI / GPT / Qwen / Claude API usage
+- any prompt-based or instruction-tuned pipeline
+
+## Research Objective
+
+The main question is whether the core Stage 1 MG-GAT architecture can be reproduced on Yelp PA data without any LLM component, and whether the reproduced result can approach the MG-GAT values reported in Table 1 of the paper.
+
+## Paper Target
+
+For PA, Table 1 reports:
+
+| Model | RMSE | Spearman | FCP | BPR |
+|---|---:|---:|---:|---:|
+| Interpretable MG-GAT | 1.249 | 0.405 | 0.602 | 0.520 |
+| Less interpretable MG-GAT | 1.217 | 0.430 | 0.645 | 0.551 |
+
+## Current Reproduction Result
+
+Current best results from the optimized reproduction are:
+
+| Model | RMSE | Spearman | FCP | BPR |
+|---|---:|---:|---:|---:|
+| Reproduced interpretable MG-GAT | 1.2462 | 0.3513 | 0.6042 | 0.6023 |
+| Reproduced less interpretable MG-GAT | 1.1990 | 0.3819 | 0.6149 | 0.6139 |
+
+Interpretation:
+- On RMSE, the reproduction is already very close to the paper for the interpretable model and slightly better than the paper result for the less interpretable model.
+- On ranking-oriented metrics, especially Spearman, there is still a visible gap from the paper.
+- The remaining discrepancy is more likely driven by dataset-definition mismatch and graph-construction details than by an inability to implement the Stage 1 model itself.
+
+## Dataset Notes
+
+The paper reports PA dataset statistics of:
+- users: 76,865
+- businesses: 10,966
+- ratings: 260,350
+
+However, the currently available Yelp snapshot does not match the paper under a naive `state == PA` filter. The working reproduction subset is therefore built more conservatively.
+
+Current processed subset used in the strongest runs:
+- region: PA
+- business category contains `Restaurants`
 - non-empty `hours`
 - non-empty `attributes`
-- reviews between `2009` and `2018`
+- review years restricted to 2009--2018
 - users restricted to the friendship giant component
 
-Current processed subset used for the best runs:
-- users: `98,831`
-- businesses: `9,458`
-- reviews: `516,336`
-- train reviews: `372,623`
-- valid reviews: `71,969`
-- test reviews: `71,744`
+Processed data size:
+- users: 98,831
+- businesses: 9,458
+- ratings: 516,336
 
-Paper Table D1 target for PA:
-- users: `76,865`
-- businesses: `10,966`
-- ratings: `260,350`
+This mismatch is the main limitation of the reproduction.
 
-This remaining mismatch is the main reason exact reproduction is still not guaranteed.
+## Method Summary
 
-## Project structure
-- `src/subset_analysis.py`: compare candidate PA subset rules against the paper statistics
-- `src/preprocess.py`: build the processed PA subset, features, and time split
-- `src/build_graph.py`: construct the user graph and three business graphs
-- `src/model.py`: MG-GAT-style Stage 1 model
+The implemented pipeline follows the paper's Stage 1 idea:
+
+1. Filter and construct the PA subset.
+2. Build user features and business features.
+3. Build the user friendship graph.
+4. Build three non-LLM business graphs:
+   - geographic proximity graph
+   - category similarity graph
+   - co-visit graph
+5. Map features into a shared representation space.
+6. Compute graph-based neighbor importance and aggregation.
+7. Produce user and business embeddings.
+8. Predict ratings and evaluate against the paper.
+
+Two variants are implemented:
+- interpretable MG-GAT
+- less interpretable MG-GAT
+
+## Key Files
+
+- `src/preprocess.py`: subset construction, feature preparation, implicit SVD features, split generation
+- `src/build_graph.py`: user graph and business multi-graph construction
+- `src/model.py`: Stage 1 MG-GAT-style model
 - `src/evaluate.py`: RMSE, Spearman, FCP, and BPR metrics
 - `train.py`: end-to-end training and evaluation
-- `artifacts/*.json`: saved experiment results
+- `artifacts/train_result.json`: best interpretable result
+- `artifacts/hparam_search.json`: interpretable and initial comparison runs
+- `artifacts/uninterp_search.json`: less interpretable search results
 
-## Environment
-The AutoDL server uses:
-- Python: `/root/miniconda3/bin/python`
-- GPU: CUDA is used automatically when available
+## How To Run
 
-## Commands
-Subset analysis:
+Train the default interpretable configuration:
+
 ```bash
-cd /root/autodl-tmp/yelp
-PYTHONPATH=/root/autodl-tmp/yelp /root/miniconda3/bin/python src/subset_analysis.py
+cd your_projectpath
+python train.py
 ```
 
-Preprocess:
-```bash
-cd /root/autodl-tmp/yelp
-PYTHONPATH=/root/autodl-tmp/yelp /root/miniconda3/bin/python src/preprocess.py
-```
+This script:
+- rebuilds the processed dataset
+- rebuilds the graphs
+- trains the default interpretable MG-GAT configuration
+- writes results to `artifacts/train_result.json`
 
-Build graphs:
-```bash
-cd /root/autodl-tmp/yelp
-PYTHONPATH=/root/autodl-tmp/yelp /root/miniconda3/bin/python src/build_graph.py
-```
+## Main Limitation
 
-Train the default interpretable MG-GAT reproduction:
-```bash
-cd /root/autodl-tmp/yelp
-PYTHONPATH=/root/autodl-tmp/yelp /root/miniconda3/bin/python train.py
-```
+The largest unresolved issue is not the deep learning implementation itself, but the fact that the paper's exact PA subset construction and full graph recipe are not fully disclosed. In particular:
+- the paper's PA statistics cannot be exactly matched from the current Yelp snapshot
+- the LLM-based perceptual graph is excluded by design
+- the bootstrap evaluation protocol from the paper is not fully specified
 
-## Best current results
-### Interpretable MG-GAT
-Saved in `artifacts/train_result.json`:
-- best validation RMSE: `1.2104`
-- best epoch: `69`
-- test RMSE: `1.2462`
-- test Spearman: `0.3513`
-- test FCP: `0.6042`
-- test BPR: `0.6023`
+## Conclusion
 
-Paper Table 1 target:
-- RMSE: `1.249`
-- Spearman: `0.405`
-- FCP: `0.602`
-- BPR: `0.520`
-
-### Less interpretable MG-GAT
-Best run currently saved in `artifacts/uninterp_search.json`:
-- configuration: `uninterp_64x64_drop01`
-- test RMSE: `1.1990`
-- test Spearman: `0.3819`
-- test FCP: `0.6149`
-- test BPR: `0.6139`
-
-Paper Table 1 target:
-- RMSE: `1.217`
-- Spearman: `0.430`
-- FCP: `0.645`
-- BPR: `0.551`
-
-## Current conclusion
-- On RMSE, the reproduction is already very close to the paper for the interpretable model and better than the paper's reported number for the less interpretable model.
-- On ranking quality, especially Spearman, there is still a visible gap from Table 1.
-- The strongest remaining risk is dataset mismatch rather than code completeness.
+Within the no-LLM constraint, this project successfully reproduces the core Stage 1 MG-GAT logic and reaches a result that is already close to the published MG-GAT performance on PA in terms of RMSE. The remaining gap is concentrated in ranking-sensitive metrics and should be understood primarily as a data-definition and evaluation-protocol issue rather than a failure to reconstruct the recommendation model.
